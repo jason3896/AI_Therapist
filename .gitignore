@@ -8,3 +8,4 @@ models/
 /src/voice/models/
 /src/voice/live_predictions*
 /src/voice/data/
+/GCKey/

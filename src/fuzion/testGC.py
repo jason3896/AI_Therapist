@@ -3,7 +3,10 @@ from vertexai import init
 from vertexai.preview.generative_models import GenerativeModel
 
 # 1. Set credentials (only needed if not using gcloud CLI auth)
+<<<<<<< HEAD
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = r"/home/raff/Documents/tamu/CSCE420/Project/AI_Therapist/GCKey/ai-therapist-456121-4ef8e7281226.json"
+=======
+>>>>>>> refs/remotes/origin/main
 
 # 2. Init Vertex AI
 init(

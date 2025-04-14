@@ -4,3 +4,7 @@ __pycache__/
 .DS_Store
 models/
 /src/voice/crema-d/
+/src/voice/output*/
+/src/voice/models/
+/src/voice/live_predictions*
+/src/voice/data/

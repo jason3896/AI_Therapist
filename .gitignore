@@ -9,5 +9,8 @@ models/
 /src/voice/live_predictions*
 /src/voice/data/
 /GCKey/
+/env/
+/env310/
+/src/voice/logs/
 echo "GCKey/*.json" >> .gitignore
 git commit -m "Remove sensitive GCP key and add to gitignore"

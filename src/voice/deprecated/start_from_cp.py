@@ -34,8 +34,8 @@ MIN_LEN = 1024
 SAMPLE_RATE = 48000
 N_MFCC = 13
 BATCH_SIZE = 32
-EPOCHS = 100
-PATIENCE = 25
+EPOCHS = 50
+PATIENCE = 5
 LEARNING_RATE = 0.001
 
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -43,29 +43,7 @@ output_log = os.path.join(OUTPUT_DIR, f'training_log_{timestamp}.csv')
 
 print(f"[{timestamp}] [INFO] Training started...")
 
-# ---- Dataset paths and emotion mappings ----
-data_dirs = {
-    "crema-d": "data/crema-d",
-    "ravdess": "data/RAVDESS",
-    "TESS": "data/TESS",
-    "MELD": "data/MELD"
-}
-
-emotion_map = {
-    'NEU': 'neutral', 'HAP': 'happy', 'SAD': 'sad', 'ANG': 'angry', 'FEA': 'fearful', 'DIS': 'disgust',
-    
-    '01': 'neutral', '02': 'calm', '03': 'happy', '04': 'sad', '05': 'angry', '06': 'fearful', '07': 'disgust', '08': 'surprised',
-    
-    'neutral': 'neutral', 'happy': 'happy', 'sad': 'sad', 'angry': 'angry', 'fear': 'fearful', 'disgust': 'disgust', 'ps': 'surprised',
-    
-    'W': 'angry', 'L': 'neutral', 'E': 'disgust', 'A': 'fearful', 'F': 'happy', 'T': 'sad', 'N': 'neutral'
-}
-
-def is_silent(y, threshold=0.01):
-    energy = np.sqrt(np.mean(y**2))
-    return energy < threshold
-
-# Feature extraction function
+# Helper functions
 def extract_features(file_path):
     try:
         if os.path.getsize(file_path) < 4000:
@@ -74,10 +52,9 @@ def extract_features(file_path):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             y, sr = librosa.load(file_path, sr=SAMPLE_RATE)
-
-            # Drop short or silent clips
-            if is_silent(y) or len(y) < 1024:
-                return None
+            
+            if len(y) < MIN_LEN:
+                y = np.pad(y, (0, MIN_LEN - len(y)))
 
             mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=N_MFCC)
             chroma = librosa.feature.chroma_stft(y=y, sr=sr)
@@ -92,18 +69,12 @@ def extract_features(file_path):
             np.mean(zcr),
             np.mean(rms),
             np.mean(spec_contrast, axis=1),
-            np.mean(tonnetz, axis=1)
+            np.mean(tonnetz, axis=1),
         ])
         return features
 
-    except Exception as e:
-        print(f"[ERROR] Feature extraction failed: {e}")
+    except Exception:
         return None
-
-
-# Dataset parsing
-
-from joblib import Parallel, delayed
 
 def parse_dataset():
     cache_path = os.path.join(OUTPUT_DIR, 'features_cache.npz')
@@ -113,45 +84,43 @@ def parse_dataset():
         cache = np.load(cache_path, allow_pickle=True)
         return cache['X'], cache['y']
 
-    entries = []
+    print(f"[INFO] Processing dataset...")
+    all_entries = []
 
-    for dataset, dataset_path in data_dirs.items():
-        print(f"[INFO] Scanning files in {dataset}...")
+    datasets = os.listdir(DATA_DIR)
+    for dataset in datasets:
+        dataset_path = os.path.join(DATA_DIR, dataset)
+        if not os.path.isdir(dataset_path):
+            continue
+
+        print(f"[INFO] Processing {dataset}...")
         for root, _, files in os.walk(dataset_path):
             for file in files:
                 if not file.endswith('.wav'):
                     continue
+
                 file_path = os.path.join(root, file)
-                entries.append((dataset, root, file, file_path))
+                if dataset == 'crema-d':
+                    parts = file.split('_')
+                    label = parts[2]
+                elif dataset == 'ravdess':
+                    parts = file.split('-')
+                    label = parts[2]
+                elif dataset == 'TESS':
+                    label = os.path.basename(root)
+                elif dataset == 'emodb':
+                    label = file[5]
+                else:
+                    continue
 
-    def process_entry(dataset, root, file, file_path):
+                all_entries.append((file_path, label))
+
+    def process_entry(entry):
+        file_path, label = entry
         feats = extract_features(file_path)
-        if feats is None:
-            return None
-        
-        label = None  
-        
-        if dataset == 'crema-d':
-            label = emotion_map.get(file.split('_')[2])
-        elif dataset == 'ravdess':
-            label = emotion_map.get(file.split('-')[2])
-        elif dataset == 'TESS':
-            filename = os.path.splitext(file)[0].lower()
-            for emotion_key in emotion_map:
-                if filename.endswith(emotion_key):
-                    label = emotion_map[emotion_key]
-                    break
-        else:
-            label = None
+        return (feats, label) if feats is not None else None
 
-        if label:
-            return (feats, label)
-        else:
-            print(f"[WARN] Unknown label code in file: {file}")
-            return None
-
-    print("[INFO] Extracting features in parallel...")
-    results = Parallel(n_jobs=-1)(delayed(process_entry)(*entry) for entry in tqdm(entries))
+    results = Parallel(n_jobs=-1)(delayed(process_entry)(entry) for entry in tqdm(all_entries, desc="Parallel Feature Extraction"))
 
     results = [r for r in results if r is not None]
     features, labels = zip(*results)
@@ -160,13 +129,11 @@ def parse_dataset():
     y = np.array(labels)
 
     np.savez_compressed(cache_path, X=X, y=y)
-
     print(f"[SUMMARY] Dataset processing complete. Cached to: {cache_path}")
     print(f"- Total samples: {len(y)}")
     print(f"- Total features per sample: {X.shape[1]}")
+
     return X, y
-
-
 
 def balance_dataset(X, y):
     print("[INFO] Balancing dataset with SMOTE + Tomek links...")
@@ -177,61 +144,79 @@ def balance_dataset(X, y):
 def build_model(input_dim, num_classes):
     model = tf.keras.Sequential([
         tf.keras.layers.Input(shape=(input_dim,)),
-        tf.keras.layers.Dense(1024, activation='relu'),
-        tf.keras.layers.BatchNormalization(),
-        tf.keras.layers.Dropout(0.4),
         tf.keras.layers.Dense(512, activation='relu'),
-        tf.keras.layers.BatchNormalization(),
         tf.keras.layers.Dropout(0.3),
         tf.keras.layers.Dense(256, activation='relu'),
         tf.keras.layers.Dropout(0.2),
         tf.keras.layers.Dense(num_classes, activation='softmax')
     ])
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),
-                  loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE),
+        loss='categorical_crossentropy',
+        metrics=['accuracy']
+    )
     return model
+
+def plot_feature_importance(model, X_train, output_dir):
+    explainer = shap.Explainer(model.predict, X_train)
+    shap_values = explainer(X_train)
+    shap.summary_plot(shap_values, X_train, show=False)
+    shap.save_html(os.path.join(output_dir, 'shap_summary.html'), shap_values)
 
 def main():
     X, y = parse_dataset()
+
     print("[INFO] Cleaning dataset...")
     mask = ~np.isnan(X).any(axis=1)
     X, y = X[mask], y[mask]
+
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)
+
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
+
     X_bal, y_bal = balance_dataset(X_scaled, y_encoded)
+
     X_train, X_test, y_train, y_test = train_test_split(X_bal, y_bal, test_size=0.2, stratify=y_bal, random_state=42)
+
     checkpoint_path = os.path.join(MODEL_DIR, 'emotion_model.keras')
+
     if os.path.exists(checkpoint_path):
         print("[INFO] Resuming from saved checkpoint...")
         model = tf.keras.models.load_model(checkpoint_path)
     else:
         print("[INFO] No checkpoint found. Building a new model...")
         model = build_model(input_dim=X_train.shape[1], num_classes=len(np.unique(y_bal)))
+
     callbacks = [
         tf.keras.callbacks.EarlyStopping(patience=PATIENCE, restore_best_weights=True),
         tf.keras.callbacks.ModelCheckpoint(checkpoint_path, save_best_only=True),
-        tf.keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=20),
-        tf.keras.callbacks.LearningRateScheduler(lambda epoch: 0.001 * 0.95**epoch),
+        tf.keras.callbacks.ReduceLROnPlateau(factor=0.5, patience=3),
         tf.keras.callbacks.CSVLogger(output_log),
         tf.keras.callbacks.TensorBoard(log_dir=os.path.join(LOG_DIR, timestamp))
     ]
-    
-    print(f"[DEBUG] X_train shape: {X_train.shape}, y_train shape: {y_train.shape}")
-    print(f"[DEBUG] y_train unique values: {np.unique(y_train)}")
+
     history = model.fit(
         X_train, tf.keras.utils.to_categorical(y_train),
         validation_data=(X_test, tf.keras.utils.to_categorical(y_test)),
-        epochs=EPOCHS, batch_size=BATCH_SIZE,
-        callbacks=callbacks, verbose=1
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        callbacks=callbacks,
+        verbose=1
     )
+
     joblib.dump(le, os.path.join(MODEL_DIR, 'label_encoder.pkl'))
     joblib.dump(scaler, os.path.join(MODEL_DIR, 'scaler.pkl'))
+
     y_pred = model.predict(X_test)
     y_pred_labels = np.argmax(y_pred, axis=1)
     print("\n[Classification Report]\n")
     print(classification_report(y_test, y_pred_labels, target_names=le.classes_))
+
+    print("[INFO] Generating feature importance report (SHAP)...")
+    plot_feature_importance(model, X_train, OUTPUT_DIR)
+
     print(f"[INFO] Training complete! Logs saved to: {output_log}")
 
 if __name__ == "__main__":

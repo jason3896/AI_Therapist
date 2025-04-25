@@ -14,7 +14,7 @@ os.makedirs(output_dir, exist_ok=True)
 
 # Load models
 print("[INFO] Loading models...")
-model = joblib.load("./models/emotion_model.pkl")
+model = joblib.load("./models/emotion_model.keras")
 scaler = joblib.load("./models/scaler.pkl")
 label_encoder = joblib.load("./models/label_encoder.pkl")
 expected_features = scaler.mean_.shape[0]

@@ -1,6 +1,19 @@
 import parselmouth
 import numpy as np
 
+"""
+Audio Feature Extractor for Emotion Analysis
+
+This script loads a single .wav file and extracts:
+- Mean Pitch (Hz)
+- Mean Intensity (dB)
+- Jitter (local)
+- Shimmer (local)
+
+These features are commonly used in vocal emotion detection systems.
+Useful for testing audio files before using them in a real-time or ML pipeline.
+"""
+
 file_path = "./crema-d/1091_WSI_DIS_XX.wav"  # <-- Update path if needed!
 
 try:

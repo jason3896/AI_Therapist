@@ -8,6 +8,22 @@ import soundfile as sf
 import tempfile
 from datetime import datetime
 
+"""
+Real-Time Voice Emotion and Speech Transcription System
+
+This script continuously records live microphone input, transcribes the speech using the Whisper ASR model,
+and performs basic voice-based emotion detection using pitch, jitter, shimmer, and intensity features.
+
+- Runs two threads: one for audio capture, one for processing
+- Uses rule-based logic to infer voice emotion (Sad, Angry, Anxious, Neutral)
+- Transcribes spoken words using Faster-Whisper
+- Logs transcript + emotion data to 'conversation_log.txt' with timestamps
+
+Useful for:
+    - Real-time emotion-aware virtual assistants
+    - Voice sentiment analysis
+    - AI therapist input processing
+"""
 
 # Configuration
 DEVICE = "cpu"  # or "cuda" if you have GPU

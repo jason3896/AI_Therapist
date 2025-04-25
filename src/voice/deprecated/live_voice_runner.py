@@ -5,6 +5,18 @@ import librosa
 import parselmouth
 import warnings
 
+"""
+Real-Time Voice Emotion Classifier (scikit-learn version)
+
+This script continuously records short audio chunks (1 sec) from the mic,
+extracts acoustic features (MFCCs, chroma, pitch, etc.), and uses a
+scikit-learn classifier to predict the speaker's emotion in real time.
+
+- Feature extraction via librosa + parselmouth
+- Uses joblib-saved sklearn pipeline, scaler, and label encoder
+- Suitable for CPU inference and quick deployment testing
+"""
+
 # Suppress warnings
 warnings.filterwarnings("ignore")
 import os

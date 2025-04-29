@@ -1,3 +1,4 @@
+import os
 import csv
 from collections import deque
 from vertexai import init
@@ -7,9 +8,9 @@ from elevenlabs import ElevenLabs, play
 import time
 from pathlib import Path
 import glob
-import os
 import chromadb
 from chromadb.utils import embedding_functions
+import uuid
 
 
 '''
@@ -34,9 +35,12 @@ api_key = "sk_9f9ea317311bc0c0f0da8e16a6127ad17fb34fe8d21b3bd6"
 client = ElevenLabs(api_key=api_key)
 
 # Setting up chroma for RAG
-chroma_client = chromadb.Client()
-chroma_collection = chroma_client.create_collection(name="user_chat_memory")
 hf_embeddings = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+
+chroma_client = chromadb.Client()
+chroma_collection = chroma_client.get_or_create_collection(
+    name="user_chat_memory"
+)
 
 '''
 # Add a collection (where the user querys and LLM responses will be stored)
@@ -57,7 +61,7 @@ To do next time: make this work to have some sort of history
 
 # Get the newest emotion log file in the folder
 # Must be done this way because the emotion logs file names include the time, so its not just one big file
-def get_latest_log_file(log_dir="data/emotion_logs"):
+def get_latest_log_file(log_dir="src/facial/data/emotion_logs"):
     log_files = glob.glob(f"{log_dir}/emotion_log_*.csv")
     if not log_files:
         raise FileNotFoundError("No emotion log files found.")
@@ -136,7 +140,7 @@ def get_latest_emotion(file_path):
 
 # Get the latest file
 emotion_file = get_latest_log_file()  
-print("File being used: {emotion_file}")
+print(f"File being used: {emotion_file}")
 
 
 while True:
@@ -153,13 +157,31 @@ while True:
 
         if user_input.strip():  # Only respond if input isn't empty
             emotion_context = format_emotion_context(average_emotions(emotion_window))
+            
+            results = chroma_collection.query(
+                query_texts=[user_input],
+                n_results=2
+            )
+            
+            retrieved_docs = "\n".join(results["documents"][0]) if results["documents"] else ""
+            
             prompt = (
                 f"{emotion_context}\n\n"
+                f"Relevant past thoughts:\n{retrieved_docs}\n\n"
                 f"User: {user_input}\n"
                 "Therapist:"
             )
-
+            
             response = model.generate_content(prompt)
+            
+            
+            embeddings = hf_embeddings([user_input, response.text])
+            chroma_collection.add(
+                documents=[user_input, response.text],
+                ids=[f"user-{uuid.uuid4()}", f"therapist-{uuid.uuid4()}"],
+                embeddings=embeddings
+            )
+            
             print(f"Therapist: {response.text}")
             speak(response.text)
 

@@ -14,3 +14,36 @@ models/
 /src/voice/logs/
 echo "GCKey/*.json" >> .gitignore
 git commit -m "Remove sensitive GCP key and add to gitignore"
+
+# Facial emotion recognition models and data
+/src/facial/checkpoint/*.pth.tar
+/src/facial/checkpoint/*.tar
+/src/facial/checkpoint/ensemble_model_*.pth.tar
+/src/facial/checkpoint/fine_model.pth.tar
+/src/facial/checkpoint/model_best.pth.tar
+/src/facial/checkpoint/model.pth.tar
+/src/facial/calibrated_model.pth.tar
+
+# Face detection models
+/src/facial/*.caffemodel
+/src/facial/deploy.prototxt
+
+# Generated directories
+/src/facial/error_analysis_results/
+/src/facial/error_samples/
+/src/facial/log/
+/src/facial/test_results/
+
+# RAF-DB dataset
+/src/facial/RAF-DB/
+
+# Backup files created by patchers
+*.bak
+
+# Keep empty test_image directory
+!/src/facial/test_image/
+/src/facial/test_image/*
+!/src/facial/test_image/.gitkeep
+
+# Keep checkpoint directory structure
+!/src/facial/checkpoint/

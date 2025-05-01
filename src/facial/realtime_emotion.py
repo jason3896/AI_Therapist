@@ -8,6 +8,8 @@ import numpy as np
 import time
 from PIL import Image
 import os
+from datetime import datetime
+import csv
 
 # Import models - assuming EfficientFace is in a file called models.py
 from models import EfficientFace
@@ -241,7 +243,8 @@ def main():
     parser.add_argument('--device', type=str, default='cpu', help='Device to use (cuda, mps, cpu)')
     parser.add_argument('--temperature', type=float, default=1.0, help='Temperature for scaling logits')
     parser.add_argument('--camera', type=int, default=0, help='Camera device index')
-    parser.add_argument('--face-detection-model', type=str, default='haarcascade', 
+    parser.add_argument('--no-display', action='store_true', help='Start with display turned off')
+    parser.add_argument('--face-detection-model', type=str, default='haarcascade',
                         choices=['haarcascade', 'dnn'],
                         help='Face detection model to use')
     args = parser.parse_args()
@@ -295,20 +298,52 @@ def main():
         print(f"Error: Could not open camera {args.camera}")
         return
 
+    display_on = not args.no_display
     print("Starting real-time emotion detection. Press 'q' to quit.")
+    print("Press 'd' to toggle display, 'q' to quit.")
     
     # For FPS calculation
     fps_counter = 0
     fps_start_time = time.time()
     fps = 0
     
+    # Placeholder window for instructions
+    if display_on:
+        instructions_window = np.zeros((150, 400, 3), np.uint8)
+        cv2.putText(instructions_window, "Press 'd' to toggle display", (20, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(instructions_window, "Press 'q' to quit", (20, 70),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+        cv2.putText(instructions_window, f"Display: {'ON' if display_on else 'OFF'}", (20, 110),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        cv2.imshow('Controls', instructions_window)
+        
+    # Set up CSV logging
+    log_dir = os.path.join(os.path.dirname(__file__), 'data', 'emotion_logs')
+    os.makedirs(log_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_path = os.path.join(log_dir, f"emotion_log_{timestamp}.csv")
+
+    csv_file = open(log_path, mode='w', newline='', encoding='utf-8')
+    csv_writer = csv.writer(csv_file)
+    csv_writer.writerow(['Timestamp', 'Emotion', 'Confidence'])
+
+    last_processed_time = 0
+    desired_fps = 2.5  # <-- set to 2 for 2 FPS
+    min_frame_interval = 1.0 / desired_fps
+
     while True:
         # Read frame from webcam
         ret, frame = cap.read()
         if not ret:
             print("Error: Failed to capture frame from camera")
             break
-            
+        
+        current_time = time.time()
+        if current_time - last_processed_time < min_frame_interval:
+            continue
+        last_processed_time = current_time
+    
         # Create a copy for visualization
         display_frame = frame.copy()
         
@@ -356,6 +391,7 @@ def main():
             if face_img.size == 0:
                 continue
             
+            
             # Preprocess face for model
             try:
                 img_tensor = preprocess_face(face_img, transform)
@@ -365,32 +401,39 @@ def main():
                     model, img_tensor, device, temperature_scaling, fine_model
                 )
                 
-                # Draw bounding box and emotion label
-                color = EMOTION_COLORS[pred_idx]
-                cv2.rectangle(display_frame, (x, y), (x2, y2), color, 2)
+                # Log to CSV in desired format
+                log_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                csv_writer.writerow([log_time, pred_label, confidence])
+                csv_file.flush()  # Force write to disk immediately
+
                 
-                # Draw emotion label with confidence
-                label_text = f"{pred_label}: {confidence:.2f}"
-                cv2.putText(display_frame, label_text, (x, y-10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                
-                # Draw probability bars for each emotion
-                bar_height = 15
-                max_bar_width = 100
-                start_x = x
-                start_y = y2 + 20
-                
-                for i, prob in enumerate(all_probs):
-                    # Draw emotion label
-                    label = EMOTION_LABELS[i]
-                    cv2.putText(display_frame, label, (start_x, start_y + i*bar_height), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+                if display_on:
+                    # Draw bounding box and emotion label
+                    color = EMOTION_COLORS[pred_idx]
+                    cv2.rectangle(display_frame, (x, y), (x2, y2), color, 2)
                     
-                    # Draw probability bar
-                    bar_width = int(prob * max_bar_width)
-                    cv2.rectangle(display_frame, (start_x + 70, start_y + i*bar_height - 10),
-                                 (start_x + 70 + bar_width, start_y + i*bar_height - 2),
-                                 EMOTION_COLORS[i], -1)
+                    # Draw emotion label with confidence
+                    label_text = f"{pred_label}: {confidence:.2f}"
+                    cv2.putText(display_frame, label_text, (x, y-10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                    
+                    # Draw probability bars for each emotion
+                    bar_height = 15
+                    max_bar_width = 100
+                    start_x = x
+                    start_y = y2 + 20
+                    
+                    for i, prob in enumerate(all_probs):
+                        # Draw emotion label
+                        label = EMOTION_LABELS[i]
+                        cv2.putText(display_frame, label, (start_x, start_y + i*bar_height), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+                        
+                        # Draw probability bar
+                        bar_width = int(prob * max_bar_width)
+                        cv2.rectangle(display_frame, (start_x + 70, start_y + i*bar_height - 10),
+                                    (start_x + 70 + bar_width, start_y + i*bar_height - 2),
+                                    EMOTION_COLORS[i], -1)
             
             except Exception as e:
                 print(f"Error processing face: {e}")
@@ -402,19 +445,55 @@ def main():
             fps = fps_counter / time_elapsed
             fps_counter = 0
             fps_start_time = time.time()
+            
+        # Show display if it's on
+        if display_on:
+            cv2.putText(display_frame, f"FPS: {fps:.1f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            
+            # Display the frame
+            cv2.imshow('Real-time Emotion Detection', display_frame)
+            
+            # Update the instructions window with current display state
+            instructions_window = np.zeros((150, 400, 3), np.uint8)
+            cv2.putText(instructions_window, "Press 'd' to toggle display", (20, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(instructions_window, "Press 'q' to quit", (20, 70),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            cv2.putText(instructions_window, f"Display: {'ON' if display_on else 'OFF'}", (20, 110),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+            cv2.imshow('Controls', instructions_window)
         
-        cv2.putText(display_frame, f"FPS: {fps:.1f}", (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        # Check for keys
+        key = cv2.waitKey(1) & 0xFF
         
-        # Display the frame
-        cv2.imshow('Real-time Emotion Detection', display_frame)
+        # Toggle display with 'd' key
+        if key == ord('d'):
+            display_on = not display_on
+            print(f"Display turned {'ON' if display_on else 'OFF'}")
+            
+            if display_on:
+                # Create windows if they don't exist
+                instructions_window = np.zeros((150, 400, 3), np.uint8)
+                cv2.putText(instructions_window, "Press 'd' to toggle display", (20, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(instructions_window, "Press 'q' to quit", (20, 70),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+                cv2.putText(instructions_window, "Display: ON", (20, 110),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                cv2.imshow('Controls', instructions_window)
+                cv2.imshow('Real-time Emotion Detection', display_frame)
+            else:
+                # Close all windows
+                cv2.destroyAllWindows()
         
-        # Check for quit key
-        if cv2.waitKey(1) & 0xFF == ord('q'):
+        # Quit with 'q' key
+        elif key == ord('q'):
             break
-    
+        
     # Clean up
     cap.release()
+    csv_file.close()
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":

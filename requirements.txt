@@ -1,9 +1,0 @@
-﻿tensorflow~=2.16.1 
-tqdm
-scikit-learn
-pandas
-joblib
-librosa>=0.10
-sounddevice
-python-dotenv
-matplotlib
